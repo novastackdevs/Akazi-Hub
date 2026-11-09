@@ -4,7 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { WorkspaceRole, WorkspaceType } from '@prisma/client';
+import { Prisma, WorkspaceRole, WorkspaceType } from '@prisma/client';
 import { compare, hash } from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,16 +23,15 @@ export class AuthService {
   }
 
   private slugify(value: string) {
-    const base = value.toLowerCase().normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '')
+    const base = value.toLowerCase().normalize('NFKD')
       .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 100);
     return `${base || 'workspace'}-${randomBytes(3).toString('hex')}`;
   }
 
   private async issueSession(userId: string) {
     const sessionId = randomUUID();
-    const secret = randomBytes(48).toString('base64url');
     const refreshToken = await this.jwt.signAsync(
-      { sub: userId, sid: sessionId, secret },
+      { sub: userId, sid: sessionId, jti: randomUUID() },
       { secret: this.refreshSecret(), expiresIn: '30d' },
     );
     await this.prisma.refreshSession.create({
@@ -62,7 +61,9 @@ export class AuthService {
     const exists = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
     if (exists) throw new ConflictException('An account with this email already exists');
     const passwordHash = await hash(dto.password, 12);
-    const created = await this.prisma.$transaction(async (tx) => {
+    let created;
+    try {
+      created = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: { email, passwordHash, firstName: dto.firstName.trim(), lastName: dto.lastName.trim() },
         select: { id: true, email: true, firstName: true, lastName: true },
@@ -77,8 +78,14 @@ export class AuthService {
         select: { id: true, name: true, slug: true, type: true },
       });
       await tx.auditLog.create({ data: { actorId: user.id, action: 'auth.register', resource: 'user', resourceId: user.id } });
-      return { user, workspace };
-    });
+        return { user, workspace };
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('An account with this email already exists');
+      }
+      throw error;
+    }
     const tokens = await this.issueSession(created.user.id);
     return { ...created, ...tokens };
   }
@@ -107,7 +114,11 @@ export class AuthService {
     if (!session || session.userId !== payload.sub || session.revokedAt || session.expiresAt <= new Date() || session.tokenHash !== this.digest(token)) {
       throw new UnauthorizedException('Refresh session is no longer valid');
     }
-    await this.prisma.refreshSession.update({ where: { id: session.id }, data: { revokedAt: new Date(), lastUsedAt: new Date() } });
+    const rotation = await this.prisma.refreshSession.updateMany({
+      where: { id: session.id, tokenHash: this.digest(token), revokedAt: null, expiresAt: { gt: new Date() } },
+      data: { revokedAt: new Date(), lastUsedAt: new Date() },
+    });
+    if (rotation.count !== 1) throw new UnauthorizedException('Refresh session has already been rotated');
     const tokens = await this.issueSession(payload.sub);
     return tokens;
   }
