@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceType {
+  EMPLOYER
+  CANDIDATE
+  AGENCY
+  PLATFORM
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  RECRUITER
+  MEMBER
+}
+
+model User {
+  id              String           @id @default(uuid()) @db.Uuid
+  email           String           @unique @db.VarChar(320)
+  passwordHash    String
+  firstName       String           @db.VarChar(80)
+  lastName        String           @db.VarChar(80)
+  emailVerifiedAt DateTime?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  memberships     WorkspaceMember[]
+  sessions        RefreshSession[]
+
+  @@index([createdAt])
+}
+
+model Workspace {
+  id        String            @id @default(uuid()) @db.Uuid
+  name      String            @db.VarChar(120)
+  slug      String            @unique @db.VarChar(140)
+  type      WorkspaceType
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  members   WorkspaceMember[]
+
+  @@index([type, createdAt])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid()) @db.Uuid
+  userId      String        @db.Uuid
+  workspaceId String        @db.Uuid
+  role        WorkspaceRole @default(MEMBER)
+  createdAt   DateTime      @default(now())
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId, role])
+}
+
+model RefreshSession {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @db.Uuid
+  tokenHash         String
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  createdAt         DateTime @default(now())
+  lastUsedAt        DateTime?
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorId     String?  @db.Uuid
+  action      String   @db.VarChar(120)
+  resource    String   @db.VarChar(120)
+  resourceId  String?  @db.VarChar(120)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([resource, resourceId])
+}

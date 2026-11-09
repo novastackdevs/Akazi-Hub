@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: akazi-hub-api
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run db:generate --workspace @akazi-hub/api && npm run build --workspace @akazi-hub/api
+    startCommand: npm run start --workspace @akazi-hub/api
+    healthCheckPath: /api/v1/health/ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: '4000'
+      - key: DATABASE_URL
+        fromDatabase:
+          name: akazi-hub-db
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: WEB_ORIGIN
+        sync: false
+
+databases:
+  - name: akazi-hub-db
+    plan: basic-256mb
+    databaseName: akazi_hub
+    user: akazi_hub
