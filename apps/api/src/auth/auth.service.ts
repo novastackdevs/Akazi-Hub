@@ -61,7 +61,10 @@ export class AuthService {
     const exists = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
     if (exists) throw new ConflictException('An account with this email already exists');
     const passwordHash = await hash(dto.password, 12);
-    let created;
+    let created: {
+      user: { id: string; email: string; firstName: string; lastName: string };
+      workspace: { id: string; name: string; slug: string; type: WorkspaceType };
+    };
     try {
       created = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
