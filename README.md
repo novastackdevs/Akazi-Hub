@@ -1,40 +1,99 @@
 # Akazi Hub
 
-A cloud-first job board and talent marketplace SaaS.
+Akazi Hub is a cloud-first job board and talent marketplace for employers, candidates, recruiters, and platform administrators.
 
-## Product goals
+## Product commitment
 
-- Build a production-grade platform for employers, candidates, recruiters, and platform administrators.
-- Deliver at least 700 distinct, useful product capabilities across the platform. Features will be tracked in a versioned capability catalog and counted only when implemented and tested.
-- Keep development and source management in GitHub. No local-PC downloads or browser-based VS Code workflow is required.
+The long-term target is at least 700 distinct platform capabilities. A capability counts as delivered only after implementation, integration, and automated verification. Roadmap entries are not counted as completed features.
 
-## Planned technology
+## Monorepo
 
-- Web: Next.js, TypeScript, Tailwind CSS
-- API: NestJS, TypeScript, REST API
-- Data: PostgreSQL and Prisma
-- Background work: Redis and BullMQ
-- Payments: Stripe with an adapter for a regional payment provider
-- Hosting: Vercel for the web app, Render for the API, managed PostgreSQL/Redis
+- `apps/web`: Next.js App Router frontend
+- `apps/api`: NestJS REST API and Prisma data model
+- `packages/shared`: shared TypeScript contracts
 
-## Engineering principles
+## Stack
 
-- Secure-by-default authentication, authorization, tenant isolation, and audit trails.
-- Payment-confirmed state transitions must be driven by verified, idempotent provider webhooks, never browser redirects.
-- Private file storage, signed upload/download URLs, file validation, and malware scanning.
-- Automated tests, migrations, CI checks, observability, and documented deployment configuration.
-- Features are delivered in reviewed phases; roadmap items are not represented as completed functionality.
+- Node.js 22, npm workspaces, Turborepo
+- Next.js 15, React 19, TypeScript
+- NestJS 11, class-validator, Helmet, request throttling
+- PostgreSQL, Prisma 6
+- GitHub Actions CI
+- Vercel (web) and Render (API/database blueprint)
 
-## Delivery roadmap
+## Implemented in this foundation phase
 
-1. Repository foundation, workspace structure, linting, formatting, and CI.
-2. Authentication, identity verification, workspaces, and role-based access control.
-3. Employer company profiles and job lifecycle management.
-4. Candidate profiles, resumes, discovery, and applications.
-5. Billing, subscriptions, quotas, and payment-provider integrations.
-6. Recruitment pipeline, communications, matching, and automation.
-7. Administration, analytics, trust and safety, integrations, and advanced capabilities.
+- Responsive public landing page and registration/login screens
+- Employer registration creates a user, employer workspace, and owner membership in one database transaction
+- Password hashing with bcrypt
+- 15-minute access JWTs
+- 30-day refresh JWTs stored as hashes in the database and delivered through an HttpOnly cookie
+- Refresh-session rotation with an atomic database update to prevent concurrent reuse
+- Logout revokes the refresh session
+- DTO validation, Helmet headers, credentialed CORS, and global API rate limiting
+- Liveness and database readiness endpoints
+- Initial health-controller unit tests
+- GitHub Actions typecheck, test, and build workflow
 
-## Status
+## Not yet production-complete
 
-Repository initialization. Implementation status will be updated as features are added and verified.
+Email verification, password reset, MFA, full access-token guards and workspace-scoped authorization, candidate onboarding, employer job CRUD, applications, ATS, payments, provider webhooks, file scanning, admin operations, and the full 700+ capability catalogue remain future implementation phases. Do not use this foundation as a production recruitment service yet.
+
+## Environment configuration
+
+Copy the examples into deployment environment variables; do not commit secrets.
+
+API variables (`apps/api/.env.example`):
+
+- `DATABASE_URL`: PostgreSQL connection string
+- `JWT_ACCESS_SECRET`: independent random secret, at least 32 characters
+- `JWT_REFRESH_SECRET`: a different independent random secret, at least 32 characters
+- `WEB_ORIGIN`: exact frontend origin (comma-separated if multiple)
+- `NODE_ENV`, `PORT`
+
+Web variable (`apps/web/.env.example`):
+
+- `NEXT_PUBLIC_API_URL`: API origin plus `/api/v1`
+
+## Deploy online
+
+### Render API and PostgreSQL
+
+The root `render.yaml` defines the API service and managed PostgreSQL database. Create a new Blueprint in Render and connect this repository. Set `WEB_ORIGIN` to the deployed frontend origin. Run `npm run db:push --workspace @akazi-hub/api` as a release/one-time schema step for the initial prototype; introduce reviewed, versioned Prisma migrations before production releases.
+
+### Vercel frontend
+
+Import this repository into Vercel using the repository root as the project root. The root `vercel.json` configures the Next.js build. Set `NEXT_PUBLIC_API_URL` to the Render API URL ending in `/api/v1`.
+
+The default refresh cookie is HttpOnly, Secure in production, and SameSite=Lax. Prefer frontend and API subdomains under the same registrable domain. If using unrelated Vercel/Render domains, cookie policy and CSRF protections must be deliberately configured before production use.
+
+## Local development
+
+1. Use Node.js 22 and npm 10.
+2. Copy `apps/api/.env.example` to `apps/api/.env`; set a reachable PostgreSQL database and strong, distinct JWT secrets.
+3. Copy `apps/web/.env.example` to `apps/web/.env.local`.
+4. Run `npm install`.
+5. Run `npm run db:generate --workspace @akazi-hub/api`.
+6. Run `npm run db:push --workspace @akazi-hub/api`.
+7. Run `npm run dev`.
+
+## Quality checks
+
+```bash
+npm install
+npm run db:generate --workspace @akazi-hub/api
+npm run format:check
+npm run typecheck
+npm test
+npm run build
+```
+
+CI runs the same generation, typecheck, test, and build steps. A passing workflow is required before a release is treated as verified.
+
+## Security notes
+
+- Never commit credentials or real environment files.
+- Use HTTPS in production and rotate secrets if exposed.
+- Access tokens are currently held in browser session storage in this first vertical slice; move to a hardened backend-for-frontend/session-cookie design before production.
+- Add CSRF protection before enabling cross-site refresh-cookie deployment.
+- Payment features must remain disabled until signed webhook verification, idempotency, and reconciliation are implemented and tested.
